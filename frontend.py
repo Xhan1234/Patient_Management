@@ -2,6 +2,8 @@
 import tkinter as tk
 from datetime import datetime, timedelta
 from tkinter import messagebox, ttk
+import datetime
+from tkinter import Tk, Label, Listbox, Scrollbar, StringVar, END
 
 import backend as be
 from my_calendar import PersonalizedCalendar
@@ -117,19 +119,25 @@ class LoginScreen(tk.Tk):
         username = self.username_entry.get()
         password = self.password_entry.get()
 
+        print("Logging in with username:", username)  # Debugging statement
+        print("Role: doctor")  # Debugging statement
+
         # Check if the user is an admin
         if username == "admin" and password == "17021997":
             role = "admin"
+            print("Role: admin")  # Debugging statement
         else:
             role = "doctor"
 
-        doctor_info = be.login(username, password, None)  # Pass the role parameter to the login function
+        print("Calling login function with username:", username, "and role:", role)  # Debugging statement
+        doctor_info = be.login(username, password, role)  # Pass the role parameter to the login function
 
         if doctor_info:
             doctor_id, _ = doctor_info  # Extract doctor_id from the returned tuple
             doctor_name = be.get_doctor_name(doctor_id)  # Ensure doctor_id is an integer
 
             if doctor_name:
+                print("Doctor name retrieved:", doctor_name)  # Debugging statement
                 self.destroy()  # Close login window
                 app = App(doctor_id, doctor_name, role)  # Pass the role parameter here
                 app.mainloop()
@@ -237,6 +245,56 @@ class RegisterDoctorWindow(tk.Toplevel):
             self.destroy()  # Close the current window after successful registration
 
 
+class PatientPagination:
+    def __init__(self, doctor_id):
+        self.doctor_id = doctor_id
+        self.page_size = 10
+        self.current_page = 1
+        self.filtered_patients = []
+        self.all_patients = []
+
+    def update_filtered_patients(self, filtered_patients):
+        self.filtered_patients = filtered_patients
+        self.current_page = 1
+
+    def fetch_patients(self):
+        start_index = (self.current_page - 1) * self.page_size
+        end_index = start_index + self.page_size
+        print("Start Index:", start_index)  # Debugging statement
+        print("End Index:", end_index)      # Debugging statement
+        print("Filtered Patients:", self.filtered_patients)  # Debugging statement
+        print("All Patients:", self.all_patients)            # Debugging statement
+        if len(self.filtered_patients)>1:
+            return self.filtered_patients[start_index:end_index]
+        else:
+            return self.all_patients[start_index:end_index]
+
+    def total_patients_count(self):
+        if self.filtered_patients:
+            return len(self.filtered_patients)  # Return the count of filtered patients if they exist
+        elif self.all_patients:
+            return len(self.all_patients)  # Return the count of all patients if filtered patients don't exist
+        else:
+            return 0  # Return 0 if there are no patients at all
+
+    def total_pages(self):
+        total_patients = self.total_patients_count()
+        return (total_patients + self.page_size - 1) // self.page_size
+
+    def prev_page(self):
+        if self.current_page > 1:
+            self.current_page -= 1
+            return True
+        return False
+
+    def next_page(self):
+        total_pages = self.total_pages()
+        if self.current_page < total_pages:
+            self.current_page += 1
+            return True
+        return False
+
+
 class App(tk.Tk):
     def __init__(self, doctor_id, doctor_name, role):
         super().__init__()
@@ -266,6 +324,11 @@ class App(tk.Tk):
         self.role = role  # Store the role
         self.selected_start_date = None  # Variable to store the selected start date
         self.selected_end_date = None  # Variable to store the selected end date
+        self.pagination = PatientPagination(doctor_id)  # Initialize PatientPagination instance
+
+
+        # Add a new attribute to store today's date
+        self.today_date = datetime.datetime.now().date()
 
         # Frame to contain entry fields and button for adding patient
         self.entry_frame = tk.Frame(self, bg='#f0f0f0')
@@ -480,6 +543,8 @@ class App(tk.Tk):
 
         self.next_button = tk.Button(self, text="Next", command=self.next_page)
         self.next_button.pack(side=tk.LEFT, padx=10, pady=10)
+        # Update patient list initially
+        self.update_patients_list()
 
         # Logout button
         self.logout_button = tk.Button(
@@ -530,6 +595,7 @@ class App(tk.Tk):
         self.populate_patients_list()  # Populate patient list
         self.update_patient_count_label()
 
+
     def add_spacing_rows(self, data_count):
         # Add empty rows between data rows for spacing
         for i in range(1, data_count):
@@ -537,47 +603,58 @@ class App(tk.Tk):
             self.tree.insert("", f"end", values=("", "", "", ""), tags=("spaced",))
 
     def update_patients_list(self):
-        # Calculate start and end indices for the current page
-        start_index = (self.current_page - 1) * self.page_size
-        end_index = start_index + self.page_size
+        # Fetch patients based on pagination from PatientPagination instance
+        patients = self.pagination.fetch_patients()
 
-        # Fetch patients from the database
-        patients = be.get_patients(self.doctor_id)
-
-        # Filter patients for the current page
-        patients_on_current_page = patients[start_index:end_index]
+        # Print the fetched patients for debugging
+        print("Fetched patients:", patients)
 
         # Clear previous entries
+        print("Clearing previous entries in the Treeview.")
         self.tree.delete(*self.tree.get_children())
 
-        # Populate the Treeview with patient data for the current page
-        for i, patient in enumerate(patients_on_current_page):
-            # Ensure the order of values matches the order of columns in the Treeview
-            self.tree.insert("", "end", values=(patient[2], patient[3], patient[4], patient[5]))
+        if patients:
+            # Populate the Treeview with patient data for the current page
+            for i, patient in enumerate(patients):
+                patient_id = patient[0]
+                self.patient_ids.append(patient_id)
+                self.tree.insert("", "end", values=(patient[2], patient[3], patient[4], patient[5]))
 
-            # Add empty rows between data rows for spacing
-            if i < len(patients_on_current_page) - 0.5:
-                self.tree.insert("", "end", values=("", "", "", ""), tags=("spaced",))
+                # Add empty rows between data rows for spacing
+                if i < len(patients) - 1:
+                    self.tree.insert("", "end", values=("", "", "", ""), tags=("spaced",))
 
-        # Update patient count label to show the current page and total pages
-        total_patients = len(patients)
-        total_pages = (total_patients + self.page_size - 1) // self.page_size
-        self.patient_count_label.config(
-            text=f"Page {self.current_page}/{total_pages}, Total Patients: {total_patients}")
+            # Add spacing rows
+            self.add_spacing_rows(len(patients))
+
+            # Update patient count label to show the current page and total pages
+            total_pages = self.pagination.total_pages()
+            total_patients = self.pagination.total_patients_count()
+            self.patient_count_label.config(
+                text=f"Page {self.pagination.current_page}/{total_pages}, Total Patients: {total_patients}")
+            print("Patient list updated successfully.")
+        else:
+            print("No patients found")  # Debugging print
 
     def prev_page(self):
-        if self.current_page > 1:
-            self.current_page -= 1
-            self.populate_patients_list()
+        if self.pagination.prev_page():
+            # If previous page exists, update patient list
+            print("Moving to the previous page.")
+            self.update_patients_list()
+        else:
+            print("No previous page available.")
 
     def next_page(self):
-        total_patients = len(be.get_patients(self.doctor_id))
-        total_pages = (total_patients + self.page_size - 1) // self.page_size
-        if self.current_page < total_pages:
-            self.current_page += 1
-            self.populate_patients_list()
+        if self.pagination.next_page():
+            # If next page exists, update patient list
+            print("Moving to the next page.")
+            self.update_patients_list()
+        else:
+            print("No next page available.")
+
 
     # Function to handle updating doctor password
+
     def open_update_password_window(self):
         # Create a new window for updating password
         update_password_window = tk.Toplevel(self)
@@ -700,64 +777,78 @@ class App(tk.Tk):
 
     def populate_patients_list(self):
         # Clear previous entries
+        print("Clearing previous entries.")
         self.tree.delete(*self.tree.get_children())
 
-        # Calculate start and end indices for the current page
-        start_index = (self.current_page - 1) * self.page_size
-        end_index = start_index + self.page_size
+        # Fetch patients added today based on the doctor's access level
+        if self.doctor_id == -1:
+            # Fetch patients from all doctors
+            patients_added_today, today_patients_count = be.get_patients_added_today_all()
+        else:
+            # Fetch patients added today by the currently logged-in doctor
+            patients_added_today, today_patients_count = be.get_patients_added_today(self.doctor_id)
 
-        # Fetch patients from the database
-        patients = be.get_patients(self.doctor_id)
+        # Update the pagination object with the fetched patients
+        print("Updating pagination object with fetched patients.")
+        self.pagination.all_patients = patients_added_today
 
-        # Filter patients for the current page
-        patients_on_current_page = patients[start_index:end_index]
+        # Pagination
+        total_pages = (len(patients_added_today) + self.page_size - 1) // self.page_size
+        start_index = (self.pagination.current_page - 1) * self.page_size
+        end_index = min(start_index + self.page_size, len(patients_added_today))
+        patients_on_page = patients_added_today[start_index:end_index]
 
         # Clear any previous patient IDs
+        print("Clearing any previous patient IDs.")
         self.patient_ids = []
 
         # Populate the Treeview with patient data and spacing
-        for i, patient in enumerate(patients_on_current_page):
+        for i, patient in enumerate(patients_on_page):
             patient_id = patient[0]
             self.patient_ids.append(patient_id)
             # Ensure the order of values matches the order of columns in the Treeview
             self.tree.insert("", "end", values=(patient[2], patient[3], patient[4], patient[5]))
 
             # Add empty rows between data rows for spacing
-            if i < len(patients_on_current_page) - 0.5:
+            if i < len(patients_on_page) - 1:
                 self.tree.insert("", "end", values=("", "", "", ""), tags=("spaced",))
 
-        # Update patient count label to show the current page and total pages
-        total_patients = len(patients)
-        total_pages = (total_patients + self.page_size - 1) // self.page_size
-        self.patient_count_label.config(
-            text=f"Page {self.current_page}/{total_pages}, Total Patients: {total_patients}")
+        # Print today's patients count
+        print("Today's patients count:", today_patients_count)
 
-        # Update patient count label
-        self.update_patient_count_label()
+        # Update patient count label to show the current page, total pages, and today's patients count
+        print("Updating patient count label.")
+        self.update_patient_count_label(today_patients_count)
+        
 
-        # Update the style to adjust row height and spacing
-        self.style.configure("Custom.Treeview", rowheight=25, padding=10)
-
-    def update_patient_count_label(self):
-        total_patients = len(be.get_patients(self.doctor_id))
-        total_pages = (total_patients + self.page_size - 1) // self.page_size
-        self.patient_count_label.config(
-            text=f"Page {self.current_page}/{total_pages}, Total Patients: {total_patients}")
+    def update_patient_count_label(self, today_patients_count=None):
+        if today_patients_count is not None:
+            total_pages = (today_patients_count + self.page_size - 1) // self.page_size
+            print("Updating patient count label with today's patients count.")
+            self.patient_count_label.config(
+                text=f"Page {self.current_page}/{total_pages}, Total Patients: {today_patients_count}")
+        else:
+            total_patients = len(self.pagination.all_patients)  # Use pagination data
+            total_pages = (total_patients + self.page_size - 1) // self.page_size
+            print("Updating patient count label with total patients count.")
+            self.patient_count_label.config(
+                text=f"Page {self.current_page}/{total_pages}, Today Patients: {total_patients}")
 
     def filter_patients(self):
+        # Get filter criteria
         filter_name = self.filter_name_entry.get().strip().lower()
         filter_surname = self.filter_surname_entry.get().strip().lower()
-
-        # Convert selected dates to the correct format if they are not None
         start_date = self.selected_start_date
         end_date = self.selected_end_date
 
-        # Ensure that start_date and end_date are of type datetime.date
-        if isinstance(start_date, str):
-            start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+        # Debugging print to show filter criteria
+        print("Filter criteria - Name:", filter_name, "Surname:", filter_surname, "Start Date:", start_date,
+              "End Date:", end_date)
 
-        if isinstance(end_date, str):
-            end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+        # Check if any filtering criteria are provided
+        if not (filter_name or filter_surname or (start_date and end_date)):
+            print("No filter criteria provided. Returning.")  # Debugging print
+            return  # Return if no filtering criteria are provided
 
         # Fetch patients based on name filter
         patients = be.get_patients_by_name(self.doctor_id, filter_name)
@@ -767,47 +858,69 @@ class App(tk.Tk):
                              (filter_surname in patient[3].lower() if filter_surname else True)]
 
         # Apply date range filter if both start date and end date are selected
-        if start_date and end_date:
+        if start_date is not None and end_date is not None:
             # Convert selected dates to datetime objects for comparison
-            start_datetime = datetime.combine(start_date, datetime.min.time())
-            end_datetime = datetime.combine(end_date, datetime.min.time())
-  # Add one day to include end_date
-
+            start_datetime = datetime.datetime.combine(datetime.datetime.strptime(start_date, "%Y-%m-%d").date(),
+                                                       datetime.datetime.min.time())
+            end_datetime = datetime.datetime.combine(datetime.datetime.strptime(end_date, "%Y-%m-%d").date(),
+                                                     datetime.datetime.min.time())
             # Filter patients based on registration date within the selected range
             filtered_patients = [patient for patient in filtered_patients if
-                                 start_datetime <= datetime.strptime(patient[5].split()[0], "%Y-%m-%d") <= end_datetime]
+                                 start_datetime <= datetime.datetime.strptime(patient[5].split()[0],
+                                                                              "%Y-%m-%d") <= end_datetime]
+
+        # Debugging print to show the number of patients found after filtering
+        print("Number of patients found after filtering:", len(filtered_patients))
 
         # Clear previous entries
         self.tree.delete(*self.tree.get_children())
+        self.patient_ids = []
 
         if filtered_patients:
             # Populate the Treeview with filtered patient data
             for i, patient in enumerate(filtered_patients):
                 # Ensure the order of values matches the order of columns in the Treeview
                 self.tree.insert("", "end", values=(patient[2], patient[3], patient[4], patient[5]))
+
+                # Add patient ID to the list
+                self.patient_ids.append(patient[0])  # Add patient ID to the list
+
                 # Add empty rows between data rows for spacing
                 if i < len(filtered_patients) - 0.5:
                     self.tree.insert("", "end", values=("", "", "", ""), tags=("spaced",))
-            message = f"Retrieved {len(filtered_patients)} patient(s) matching the criteria successfully."
         else:
-            message = "No patients found matching the criteria."
+            print("No patients found matching the criteria.")  # Debugging print
+            # Update patient count label even if no patients are found
+            self.update_patient_count_label(0)
 
-        # Show message in the console
-        print(message)
+            # No need to update pagination or patient list if no patients are found
+            return
 
         # Update patient count label
-        self.patient_count_label.config(text=f"Total Patients: {len(filtered_patients)}")
+        self.update_patient_count_label()
+
+        # Update pagination to consider the filtered patients
+        self.pagination.update_filtered_patients(filtered_patients)
+
+        # Set current page to 1 after filtering
+        self.pagination.current_page = 1
+
+        # Update patients list after pagination is updated
+        self.update_patients_list()
 
     def clear_filter_fields(self):
         # Clear all filter fields
-        self.filter_name_entry.delete(0, tk.END)
-        self.filter_surname_entry.delete(0, tk.END)
-        self.selected_start_date = None
-        self.selected_start_date_label.config(text="")
-        self.selected_end_date = None
-        self.selected_end_date_label.config(text="")
-        self.populate_patients_list()  # Refresh patient list
-        self.update_patient_count_label()
+        if self.selected_end_date is not None:
+            self.filter_name_entry.delete(0, tk.END)
+            self.filter_surname_entry.delete(0, tk.END)
+            self.selected_start_date = None
+            self.selected_start_date_label.config(text="")
+            self.selected_end_date = None
+            self.selected_end_date_label.config(text="")
+            self.populate_patients_list()  # Refresh patient list
+            self.update_patient_count_label()
+            self.filtered_patients = []
+            self.pagination.update_filtered_patients(self.filtered_patients)
 
     def show_start_date_calendar(self):
         # Create a personalized calendar window to select the start date
@@ -859,6 +972,18 @@ class App(tk.Tk):
                 diagnosis = self.tree.item(item, "values")[2]
                 index = self.tree.index(item) // 2  # Adjust index calculation considering the spacing
 
+                # Calculate the index relative to the current page
+                start_index = (self.pagination.current_page - 1) * self.page_size
+                index += start_index
+
+                # Debugging statements
+                print("Selected item:", item)
+                print("Name:", name)
+                print("Surname:", surname)
+                print("Diagnosis:", diagnosis)
+                print("Index:", index)
+                print("Patient IDs:", self.patient_ids)  # Add debugging statement for patient IDs
+
                 if 0 <= index < len(self.patient_ids):
                     patient_id = self.patient_ids[index]
 
@@ -880,12 +1005,24 @@ class App(tk.Tk):
         self.crud_window_open = False
 
     def update_patient_list(self, deleted_index):
+        # Calculate the index of the patient being deleted based on the current page
+        start_index = (self.pagination.current_page - 1) * self.page_size
+        patient_index = start_index + deleted_index
+
+        # Debugging print to show the index of the deleted patient
+        print("Deleted patient index:", patient_index)
+
         # Remove the patient ID from the list
-        del self.patient_ids[deleted_index]
+        del self.patient_ids[patient_index]
+
+        # Debugging print to show the patient IDs after deletion
+        print("Patient IDs after deletion:", self.patient_ids)
 
         # Reindex patient IDs in the treeview
-        for i in range(deleted_index, len(self.patient_ids)):
-            item = self.tree.get_children()[i]
+        for i in range(len(self.patient_ids)):
+            item = self.tree.get_children()[i]  # Adjust index considering pagination
+            # Debugging print to show the item being updated
+            print("Updating item:", item, "with value:", i + 1)
             self.tree.item(item, values=(i + 1,))
 
 
@@ -945,6 +1082,8 @@ class CRUDWindow(tk.Toplevel):
         self.bind("<Destroy>", master.on_crud_window_close)
 
     def load_data(self):
+        # Debugging print to indicate that data loading is initiated
+        print("Loading data into the CRUD window.")
         # Call the populate_patients_list method to load data into the Treeview
         self.master.populate_patients_list()
 
@@ -956,8 +1095,18 @@ class CRUDWindow(tk.Toplevel):
         diagnosis = self.diagnosis_entry.get("1.0", tk.END).strip()
         role = self.role  # Access the role directly from self
 
+        # Debugging print to show the data before updating
+        print("Updating patient with ID:", patient_id)
+        print("New name:", name)
+        print("New surname:", surname)
+        print("New diagnosis:", diagnosis)
+        print("Role:", role)
+
         # Call the update_patient function from backend
         be.update_patient(role, patient_id, name, surname, diagnosis)
+
+        # Debugging print to indicate that the update process is completed
+        print("Patient updated successfully.")
 
         # Destroy the window after updating
         self.destroy()
@@ -967,6 +1116,7 @@ class CRUDWindow(tk.Toplevel):
         role = self.role  # Access the role directly from self
         # Assuming you have a variable storing the selected patient's ID
         patient_id_numeric = self.selected_patient_id
+        print("Deleting patient with ID:", patient_id_numeric)  # Debugging print
         be.delete_patient(patient_id_numeric, role)  # Pass role here
         # Call the populate_patients_list method of the parent window to update the patient list and count
         self.parent.populate_patients_list()
