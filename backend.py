@@ -47,14 +47,20 @@ def create_tables():
 
 
 def execute_query(query, params=None):
-    with sqlite3.connect('patients.db') as conn:
-        cursor = conn.cursor()
-        if params:
-            cursor.execute(query, params)
-        else:
-            cursor.execute(query)
-        result = cursor.fetchall()
-    return result
+    try:
+        with sqlite3.connect('patients.db') as conn:
+
+            cursor = conn.cursor()
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
+            result = cursor.fetchall()
+        return result
+    except sqlite3.Error as e:
+        print(f"Error executing query: {query}")
+        print(f"Error details: {e}")
+        return []
 
 
 def login(username, password, role=None):
@@ -271,54 +277,131 @@ def get_doctor_username(patient_id):
         return None
 
 
-def get_patients(doctor_id):
+def get_patients(doctor_id, start=0, end=None):
     try:
         if doctor_id == -1:  # Super user, retrieve all patients
             select_query = "SELECT * FROM patients"
-            return execute_query(select_query)
+            patients = execute_query(select_query)
         else:
             select_query = "SELECT * FROM patients WHERE doctor_id = ?"
             params = (doctor_id,)
-            return execute_query(select_query, params)
+            patients = execute_query(select_query, params)
+
+        if end is None:
+            return patients[start:]  # Return all patients from start_index to the end
+        else:
+            return patients[start:end]  # Return patients from start_index to end_index
     except sqlite3.Error as e:
         messagebox.showerror("Error", f"Error retrieving patients: {e}")
         return []
 
+def get_patients_added_today(doctor_id):
+    try:
+        # Get today's date and time
+        today_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def get_patients_by_date_range(doctor_id, start_date, end_date):
-    select_query = "SELECT * FROM patients WHERE doctor_id = ? AND control_date BETWEEN ? AND ?"
-    params = (doctor_id, start_date, end_date)
-    results = execute_query(select_query, params)
-    return results
+        # Extract date part only
+        today_date = today_datetime.split()[0]
+
+        # Query for patients added today by the specified doctor(s)
+        if doctor_id == -1:
+            # Fetch patients added by all doctors
+            select_query = "SELECT * FROM patients WHERE control_date >= ? || ' 00:00:00' AND control_date <= ? || ' 23:59:59'"
+            params = (today_date, today_date)
+        else:
+            # Fetch patients added today by the specified doctor
+            select_query = "SELECT * FROM patients WHERE doctor_id = ? AND control_date >= ? || ' 00:00:00' AND control_date <= ? || ' 23:59:59'"
+            params = (doctor_id, today_date, today_date)
+
+        results = execute_query(select_query, params)
+
+        # Count the number of patients added today
+        today_patients_count = len(results)
+
+        return results, today_patients_count
+    except Exception as e:
+        print(f"Error retrieving patients added today: {e}")
+        return [], 0
+
+def get_patients_added_today_all():
+    try:
+        # Get today's date and time
+        today_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Extract date part only
+        today_date = today_datetime.split()[0]
+
+        # Query for patients added today by all doctors
+        select_query = "SELECT * FROM patients WHERE control_date >= ? || ' 00:00:00' AND control_date <= ? || ' 23:59:59'"
+        params = (today_date, today_date)
+        results = execute_query(select_query, params)
+
+        # Count the number of patients added today
+        today_patients_count = len(results)
+
+        return results, today_patients_count
+    except Exception as e:
+        print(f"Error retrieving patients added today: {e}")
+        return [], 0
+
+def get_patients_by_date_range(doctor_id, start_date, end_date, start=0, end=None):
+    try:
+        select_query = "SELECT * FROM patients WHERE doctor_id = ? AND control_date BETWEEN ? AND ?"
+        params = (doctor_id, start_date + " 00:00:00", end_date + " 23:59:59")  # Adjust the time range
+        print("Executing SQL query:")
+        print("Query:", select_query)
+        print("Parameters:", params)
+        results = execute_query(select_query, params)
+        if end is None:
+            return results[start:]
+        else:
+            return results[start:end]
+    except Exception as e:
+        print(f"Error retrieving patients by date range: {e}")
+        return []
 
 
-def get_patients_by_date_range_and_name(doctor_id, start_date, end_date, name):
+def get_patients_by_date_range_and_name(doctor_id, start_date, end_date, name, start=0, end=None):
     select_query = "SELECT * FROM patients WHERE doctor_id = ? AND control_date BETWEEN ? AND ? AND (name LIKE ? OR surname LIKE ?)"
     params = (doctor_id, start_date, end_date, f"%{name}%", f"%{name}%")
+
+    print("Executing SQL query:")
+    print("Query:", select_query)
+    print("Parameters:", params)
+
     results = execute_query(select_query, params)
-    return results
+    if end is None:
+        return results[start:]
+    else:
+        return results[start:end]
 
 
-def get_patients_by_name(doctor_id, name):
+def get_patients_by_name(doctor_id, name, start=0, end=None):
     try:
-        if doctor_id == -1:  # Super user, retrieve all patients
+        if doctor_id == -1:
             select_query = "SELECT * FROM patients WHERE name LIKE ? OR surname LIKE ?"
             params = (f"%{name}%", f"%{name}%")
-            results = execute_query(select_query, params)
         else:
             select_query = "SELECT * FROM patients WHERE doctor_id = ? AND (name LIKE ? OR surname LIKE ?)"
             params = (doctor_id, f"%{name}%", f"%{name}%")
-            results = execute_query(select_query, params)
-        return results
+        results = execute_query(select_query, params)
+        if end is None:
+            return results[start:]
+        else:
+            return results[start:end]
     except sqlite3.Error as e:
         messagebox.showerror("Error", f"Error retrieving patients by name: {e}")
         return []
 
 
-def get_all_patients():
+def get_all_patients(start=0, end=None):
     try:
         select_query = "SELECT * FROM patients"
-        return execute_query(select_query)
+        results = execute_query(select_query)
+        if end is None:
+            return results[start:]
+        else:
+            return results[start:end]
     except sqlite3.Error as e:
         messagebox.showerror("Error", f"Error retrieving all patients: {e}")
         return []
